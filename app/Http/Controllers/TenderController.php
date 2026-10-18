@@ -95,4 +95,43 @@ class TenderController extends Controller
             'data' => $query,
         ]);
     }
+
+    public function stateTenders(Request $request, string $code)
+    {
+        $state = DB::table('states')->where('code', $code)->first();
+        if (! $state) {
+            return response()->json(['tenders' => []]);
+        }
+
+        $status = $request->input('status');
+
+        $query = DB::table('tenders')
+            ->leftJoin('portals', 'tenders.portal_id', '=', 'portals.id')
+            ->where('tenders.state_id', $state->id);
+
+        if ($status) {
+            $query->where('tenders.status', $status);
+        }
+
+        $tenders = $query
+            ->select(
+                'tenders.id',
+                'tenders.tender_ref',
+                'tenders.title',
+                'tenders.tender_value',
+                'tenders.closes_at',
+                'tenders.status',
+                'portals.name as portal_name',
+                'portals.code as portal_code'
+            )
+            ->orderByRaw('CASE WHEN tenders.status = "live" THEN 1 WHEN tenders.status = "closing_soon" THEN 2 ELSE 3 END')
+            ->orderBy('tenders.closes_at', 'desc')
+            ->limit(6)
+            ->get();
+
+        return response()->json([
+            'state' => $state,
+            'tenders' => $tenders,
+        ]);
+    }
 }

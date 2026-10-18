@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Tender;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
 
 class TenderSearchService
 {
@@ -12,18 +14,29 @@ class TenderSearchService
     {
         $query = Tender::with(['portal', 'authority', 'state', 'sector', 'documents', 'result.winningCompany']);
 
-        // 1. Universal Search (keyword, authority, tender_ref)
+        // 1. Universal / Semantic Search (keyword or vector DB semantic similarity)
         if ($search = $request->input('search')) {
-            $query->where(function (Builder $q) use ($search) {
-                // If MySQL FULLTEXT is available, try raw match or fallback to LIKE
-                $q->where('tender_ref', 'LIKE', "%{$search}%")
-                    ->orWhere('title', 'LIKE', "%{$search}%")
-                    ->orWhere('description', 'LIKE', "%{$search}%")
-                    ->orWhereHas('authority', function ($authQ) use ($search) {
-                        $authQ->where('name', 'LIKE', "%{$search}%")
-                            ->orWhere('code', 'LIKE', "%{$search}%");
-                    });
-            });
+            $isSemantic = $request->boolean('semantic') || $request->input('search_mode') === 'semantic';
+            $semanticIds = [];
+
+            if ($isSemantic) {
+                $semanticIds = $this->performSemanticVectorSearch($search, $request);
+            }
+
+            if (! empty($semanticIds)) {
+                $query->whereIn('id', $semanticIds)
+                    ->orderByRaw('FIELD(id, '.implode(',', array_map('intval', $semanticIds)).')');
+            } else {
+                $query->where(function (Builder $q) use ($search) {
+                    $q->where('tender_ref', 'LIKE', "%{$search}%")
+                        ->orWhere('title', 'LIKE', "%{$search}%")
+                        ->orWhere('description', 'LIKE', "%{$search}%")
+                        ->orWhereHas('authority', function ($authQ) use ($search) {
+                            $authQ->where('name', 'LIKE', "%{$search}%")
+                                ->orWhere('code', 'LIKE', "%{$search}%");
+                        });
+                });
+            }
         }
 
         // 2. Filter by State (single id or code)
@@ -112,5 +125,46 @@ class TenderSearchService
         }
 
         return $query;
+    }
+
+    /**
+     * Perform Semantic Vector Search using ChromaDB via Python CLI.
+     *
+     * @return array<int>
+     */
+    protected function performSemanticVectorSearch(string $query, Request $request): array
+    {
+        try {
+            $pythonPath = base_path('scraper/venv/bin/python');
+            $scriptPath = base_path('scraper/search_vector.py');
+
+            if (! file_exists($pythonPath) || ! file_exists($scriptPath)) {
+                return [];
+            }
+
+            $command = [$pythonPath, $scriptPath, '--json', '--query', $query, '--limit', '30'];
+
+            if ($state = $request->input('state')) {
+                $command[] = '--state';
+                $command[] = (string) $state;
+            }
+            if ($sector = $request->input('sector')) {
+                $command[] = '--sector';
+                $command[] = (string) $sector;
+            }
+
+            $process = Process::path(base_path())->timeout(10)->run($command);
+
+            if ($process->successful()) {
+                $data = json_decode($process->output(), true);
+                if (is_array($data) && ! empty($data)) {
+                    return array_values(array_filter(array_column($data, 'tender_id')));
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Vector Semantic Search failed: '.$e->getMessage());
+        }
+
+        return [];
     }
 }

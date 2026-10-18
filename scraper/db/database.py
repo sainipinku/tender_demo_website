@@ -1,8 +1,10 @@
 import os
 import pymysql
 import hashlib
+import logging
 from datetime import datetime
 from dotenv import load_dotenv
+from scraper.db.vector_db import TenderVectorDB
 
 load_dotenv()
 
@@ -13,6 +15,7 @@ class DatabaseHandler:
         self.db_name = os.getenv("DB_NAME", "tender_db")
         self.user = os.getenv("DB_USER", "root")
         self.password = os.getenv("DB_PASSWORD", "")
+        self.vector_db = TenderVectorDB()
 
     def get_connection(self):
         return pymysql.connect(
@@ -107,16 +110,26 @@ class DatabaseHandler:
         conn = self.get_connection()
         try:
             with conn.cursor() as cursor:
+                portal_map = {
+                    "SHPP_RAJASTHAN": ("Rajasthan Single Holistic Procurement Portal (SHPP)", "https://shpp.rajasthan.gov.in/advance-search"),
+                    "SPPP_RAJASTHAN": ("Rajasthan State Public Procurement Portal (SPPP)", "https://sppp.rajasthan.gov.in/bidlist.php"),
+                    "CPWD_ETENDERS": ("CPWD Central Government eTenders", "https://etender.cpwd.gov.in/tenderAwardedDetails.html"),
+                    "GEM_CPPP": ("Government e-Marketplace CPPP", "https://gem.gov.in/cppp"),
+                }
+                portal_name, portal_url = portal_map.get(
+                    tender_data.portal_code,
+                    (tender_data.portal_code, "https://shpp.rajasthan.gov.in/advance-search")
+                )
                 portal_id = self.get_or_create_portal(
                     cursor,
                     code=tender_data.portal_code,
-                    name="Government e-Marketplace CPPP",
-                    url="https://gem.gov.in/cppp"
+                    name=portal_name,
+                    url=portal_url
                 )
                 
-                state_id = self.get_state_id_by_code(cursor, tender_data.state_code or "DL")
-                authority_id = self.get_or_create_authority(cursor, portal_id, tender_data.authority_name or "Ministry of Railways", state_id)
-                sector_id = self.get_sector_id_by_slug(cursor, tender_data.sector_slug or "transport")
+                state_id = self.get_state_id_by_code(cursor, tender_data.state_code or "RJ")
+                authority_id = self.get_or_create_authority(cursor, portal_id, tender_data.authority_name or "Government Department", state_id)
+                sector_id = self.get_sector_id_by_slug(cursor, tender_data.sector_slug or "construction")
 
                 # Check existing hash
                 cursor.execute(
@@ -176,6 +189,70 @@ class DatabaseHandler:
                                 (tender_id, doc.title, doc.file_url, doc.file_type, now, now)
                             )
 
+                # Index in ChromaDB Vector Database for Semantic AI Search
+                if tender_id and self.vector_db and self.vector_db.is_ready():
+                    try:
+                        self.vector_db.upsert_tender(
+                            tender_id=tender_id,
+                            tender_ref=tender_data.tender_ref,
+                            title=tender_data.title,
+                            description=tender_data.description,
+                            authority_name=tender_data.authority_name,
+                            location=tender_data.location,
+                            state_code=tender_data.state_code,
+                            sector_slug=tender_data.sector_slug,
+                            tender_value=tender_data.tender_value,
+                            closes_at=tender_data.closes_at,
+                            official_url=tender_data.official_url
+                        )
+                    except Exception as err:
+                        logging.warning(f"[VectorDB] Skipping vector index for tender #{tender_id}: {err}")
+
                 return True
+        finally:
+            conn.close()
+
+    def sync_all_to_vector_db(self) -> int:
+        """
+        Indexes all existing tenders in MySQL into ChromaDB Vector Store.
+        """
+        if not self.vector_db or not self.vector_db.is_ready():
+            logging.warning("[VectorDB] Vector DB not ready, skipping sync.")
+            return 0
+
+        conn = self.get_connection()
+        count = 0
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT t.id, t.tender_ref, t.title, t.description, t.location,
+                           t.tender_value, t.closes_at, t.official_url,
+                           a.name AS authority_name, s.code AS state_code, sec.slug AS sector_slug
+                    FROM tenders t
+                    LEFT JOIN authorities a ON t.authority_id = a.id
+                    LEFT JOIN states s ON t.state_id = s.id
+                    LEFT JOIN sectors sec ON t.sector_id = sec.id
+                    ORDER BY t.id ASC
+                """)
+                rows = cursor.fetchall()
+                logging.info(f"[VectorDB] Found {len(rows)} tenders in MySQL to index into ChromaDB...")
+                for row in rows:
+                    success = self.vector_db.upsert_tender(
+                        tender_id=row['id'],
+                        tender_ref=row['tender_ref'],
+                        title=row['title'],
+                        description=row['description'],
+                        authority_name=row['authority_name'],
+                        location=row['location'],
+                        state_code=row['state_code'],
+                        sector_slug=row['sector_slug'],
+                        tender_value=row['tender_value'],
+                        closes_at=str(row['closes_at']) if row['closes_at'] else None,
+                        official_url=row['official_url']
+                    )
+                    if success:
+                        count += 1
+                logging.info(f"[VectorDB] Sync complete! Successfully indexed {count} tenders.")
+                return count
         finally:
             conn.close()

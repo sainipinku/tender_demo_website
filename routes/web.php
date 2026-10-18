@@ -18,3 +18,4 @@ Route::post('/api/saved-searches', [SavedSearchController::class, 'store'])->nam
 Route::delete('/api/saved-searches/{id}', [SavedSearchController::class, 'destroy'])->name('saved-searches.destroy');
 
 Route::get('/api/map/aggregate', [TenderController::class, 'mapAggregate'])->name('api.map.aggregate');
+Route::get('/api/map/state-tenders/{code}', [TenderController::class, 'stateTenders'])->name('api.map.state-tenders');
