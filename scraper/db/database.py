@@ -2,6 +2,7 @@ import os
 import pymysql
 import hashlib
 from datetime import datetime
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -67,7 +68,7 @@ class DatabaseHandler:
         )
         return cursor.lastrowid
 
-    def get_or_create_authority(self, cursor, portal_id: int, name: str, state_id: int = None) -> int:
+    def get_or_create_authority(self, cursor, portal_id: int, name: str, state_id: Optional[int] = None) -> int:
         cursor.execute("SELECT id FROM authorities WHERE name = %s", (name,))
         res = cursor.fetchone()
         if res:
@@ -80,24 +81,19 @@ class DatabaseHandler:
         )
         return cursor.lastrowid
 
-    def get_state_id_by_code(self, cursor, code: str) -> int:
+    def get_state_id_by_code(self, cursor, code: str) -> Optional[int]:
         cursor.execute("SELECT id FROM states WHERE code = %s", (code,))
         res = cursor.fetchone()
         if res:
             return res['id']
-        # Default to Delhi (DL) or 1
-        cursor.execute("SELECT id FROM states LIMIT 1")
-        res = cursor.fetchone()
-        return res['id'] if res else 1
+        return None
 
-    def get_sector_id_by_slug(self, cursor, slug: str) -> int:
+    def get_sector_id_by_slug(self, cursor, slug: str) -> Optional[int]:
         cursor.execute("SELECT id FROM sectors WHERE slug = %s", (slug,))
         res = cursor.fetchone()
         if res:
             return res['id']
-        cursor.execute("SELECT id FROM sectors LIMIT 1")
-        res = cursor.fetchone()
-        return res['id'] if res else 1
+        return None
 
     def upsert_scraped_tender(self, tender_data) -> bool:
         """
