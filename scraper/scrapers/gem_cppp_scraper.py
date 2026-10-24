@@ -15,7 +15,7 @@ class GemCpppScraper(BasePortalScraper):
             delay_between_requests=1.0
         )
 
-    def fetch_list(self, page: int = 1) -> Optional[str]:
+    def fetch_list(self, page: int = 1, search_query: Optional[str] = None) -> Optional[str]:
         if page <= 1:
             url = self.base_url
         else:

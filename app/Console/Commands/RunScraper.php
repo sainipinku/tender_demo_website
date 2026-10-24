@@ -7,19 +7,33 @@ use Symfony\Component\Process\Process;
 
 class RunScraper extends Command
 {
-    protected $signature = 'tenders:scrape {--portal=all} {--pages=all}';
+    protected $signature = 'tenders:scrape {--portal=all} {--pages=all} {--months=2} {--priority-city=jaipur} {--city-only}';
 
-    protected $description = 'Run Python scraper to dynamically fetch live tenders from government portals with continuous auto-pagination and zero duplicates';
+    protected $description = 'Run Python scraper to dynamically fetch live tenders from government portals with continuous auto-pagination, prioritizing Jaipur tenders first';
 
     public function handle(): int
     {
         $portal = (string) $this->option('portal');
         $pages = (string) $this->option('pages');
+        $months = (string) $this->option('months');
+        $priorityCity = (string) $this->option('priority-city');
+        $cityOnly = (bool) $this->option('city-only');
 
-        $this->info("Starting dynamic continuous auto-pagination live scraper for portal '{$portal}' (Pages: {$pages})...");
+        $this->info("Starting live scraper for portal '{$portal}' (Priority City: '{$priorityCity}' FIRST, Pages: {$pages})...");
 
         $baseDir = base_path();
-        $cmd = ["{$baseDir}/scraper/venv/bin/python3", "{$baseDir}/scraper/main.py", '--portal', $portal, '--pages', $pages];
+        $cmd = [
+            "{$baseDir}/scraper/venv/bin/python3",
+            "{$baseDir}/scraper/main.py",
+            '--portal', $portal,
+            '--pages', $pages,
+            '--months', $months,
+            '--priority-city', $priorityCity,
+        ];
+
+        if ($cityOnly) {
+            $cmd[] = '--city-only';
+        }
 
         $process = new Process($cmd, $baseDir, ['PYTHONPATH' => $baseDir]);
         $process->setTimeout(86400); // 24 hours process timeout for full portal auto-pagination

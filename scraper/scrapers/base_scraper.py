@@ -38,8 +38,8 @@ class BasePortalScraper(ABC):
         return None
 
     @abstractmethod
-    def fetch_list(self, page: int = 1) -> Optional[str]:
-        """Fetch list page HTML for a given page number."""
+    def fetch_list(self, page: int = 1, search_query: Optional[str] = None) -> Optional[str]:
+        """Fetch list page HTML for a given page number, optionally filtered by search_query."""
         pass
 
     @abstractmethod

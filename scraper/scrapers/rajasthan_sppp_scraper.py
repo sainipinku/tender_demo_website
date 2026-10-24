@@ -161,14 +161,16 @@ class RajasthanSpppScraper(BasePortalScraper):
 
         return False
 
-    def fetch_list(self, page: int = 1) -> Optional[str]:
+    def fetch_list(self, page: int = 1, search_query: Optional[str] = None) -> Optional[str]:
         """
         Fetch tenders page using DataTables server-side processing POST request.
+        Supports search_query (e.g. 'jaipur') to retrieve tenders specifically for that city/keyword.
         """
         if not self.cmkdk:
             self._init_session()
 
         start_row = (page - 1) * self.items_per_page
+        search_val = (search_query or "").strip()
         payload = {
             "sEcho": str(page),
             "iColumns": "8",
@@ -183,7 +185,7 @@ class RajasthanSpppScraper(BasePortalScraper):
             "mDataProp_5": "5", "sSearch_5": "", "bRegex_5": "false", "bSearchable_5": "true", "bSortable_5": "true",
             "mDataProp_6": "6", "sSearch_6": "", "bRegex_6": "false", "bSearchable_6": "true", "bSortable_6": "false",
             "mDataProp_7": "7", "sSearch_7": "", "bRegex_7": "false", "bSearchable_7": "true", "bSortable_7": "false",
-            "sSearch": "",
+            "sSearch": search_val,
             "bRegex": "false",
             "iSortCol_0": "1",
             "sSortDir_0": "desc",
@@ -200,7 +202,8 @@ class RajasthanSpppScraper(BasePortalScraper):
         }
 
         try:
-            logging.info(f"[rajasthan_sppp] Fetching page {page} (Records {start_row} to {start_row + self.items_per_page})...")
+            query_log = f" [Query: '{search_val}']" if search_val else ""
+            logging.info(f"[rajasthan_sppp] Fetching page {page}{query_log} (Records {start_row} to {start_row + self.items_per_page})...")
             response = self.client.post(
                 self.server_processing_url,
                 data=payload,
@@ -225,7 +228,7 @@ class RajasthanSpppScraper(BasePortalScraper):
         try:
             if content:
                 data = json.loads(content)
-                total_records = int(data.get("iTotalRecords") or data.get("iTotalDisplayRecords") or 3840)
+                total_records = int(data.get("iTotalDisplayRecords") or data.get("iTotalRecords") or 3840)
                 self.last_total_records = total_records
                 pages = max(1, (total_records + self.items_per_page - 1) // self.items_per_page)
                 return pages
@@ -338,8 +341,11 @@ class RajasthanSpppScraper(BasePortalScraper):
                     # Fallback to hash of title
                     tender_ref = f"SPPP-RJ-{hashlib.md5(title.encode()).hexdigest()[:10].upper()}"
 
-                # Column 5: Department Name
-                authority_name = row[5].strip() if len(row) > 5 else "Government of Rajasthan"
+                # Column 5: Department Name (strip any <font> tags from server search highlighting)
+                raw_authority = row[5] if len(row) > 5 else "Government of Rajasthan"
+                authority_name = re.sub(r"<[^>]+>", "", str(raw_authority)).strip()
+                if not authority_name:
+                    authority_name = "Government of Rajasthan"
 
                 # Status
                 status = self._determine_status(closes_at)

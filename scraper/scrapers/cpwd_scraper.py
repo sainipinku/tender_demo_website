@@ -187,10 +187,11 @@ class CpwdEtenderScraper(BasePortalScraper):
         except Exception as e:
             logging.debug(f"[cpwd] Session init notice: {e}")
 
-    def fetch_list(self, page: int = 1) -> Optional[str]:
+    def fetch_list(self, page: int = 1, search_query: Optional[str] = None) -> Optional[str]:
         """
         Fetch CPWD tenders page via DataTables POST AJAX JSON endpoint.
         Applies date range filter (last N months) server-side and client-side.
+        Supports search_query (e.g. 'jaipur') to filter tenders by keyword.
         """
         start_row = (page - 1) * self.per_page
 
@@ -206,7 +207,7 @@ class CpwdEtenderScraper(BasePortalScraper):
             "headQuarterID": "0",
             "encadredPostID": "0",
             "regionID": "0",
-            "sDesc": "",
+            "sDesc": (search_query or "").strip(),
             "sZone": "0",
             "tenderType": "",
             "ddlDivision": "0",

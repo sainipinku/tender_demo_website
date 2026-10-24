@@ -141,9 +141,10 @@ class RajasthanShppScraper(BasePortalScraper):
         self.detail_api_url = "https://shpp.rajasthan.gov.in/data/spppreport/api/v1/getbiddetails"
         self.page_size = 50
 
-    def fetch_list(self, page: int = 1) -> Optional[str]:
+    def fetch_list(self, page: int = 1, search_query: Optional[str] = None) -> Optional[str]:
         """
         Fetch published tenders from SHPP REST API.
+        Supports search_query (e.g. 'jaipur') to query specifically for that keyword/city.
         """
         page_index = max(0, page - 1)
         headers = {
@@ -155,16 +156,21 @@ class RajasthanShppScraper(BasePortalScraper):
         }
 
         all_tenders: List[Dict[str, Any]] = []
+        search_val = (search_query or "").strip()
+        query_label = f" (Search: '{search_val}')" if search_val else ""
 
         # 1. Fetch SHPP eBazaar Tenders
         try:
-            logging.info(f"[rajasthan_shpp] Fetching SHPP eBazaar tenders (Page {page_index}, size {self.page_size})...")
+            logging.info(f"[rajasthan_shpp] Fetching SHPP eBazaar tenders{query_label} (Page {page_index}, size {self.page_size})...")
             payload_shpp = {
                 "pageNumber": page_index,
                 "pageSize": self.page_size,
                 "procType": "eBazaar",
                 "bidValue": "25"
             }
+            if search_val:
+                payload_shpp["searchKeyword"] = search_val
+
             res_shpp = self.client.post(self.shpp_api_url, json=payload_shpp, headers=headers)
             if res_shpp.status_code == 200:
                 data_shpp = res_shpp.json()
@@ -176,11 +182,14 @@ class RajasthanShppScraper(BasePortalScraper):
 
         # 2. Fetch SPPP Tenders via SHPP
         try:
-            logging.info(f"[rajasthan_shpp] Fetching SPPP tenders via SHPP API (Page {page_index}, size {self.page_size})...")
+            logging.info(f"[rajasthan_shpp] Fetching SPPP tenders via SHPP API{query_label} (Page {page_index}, size {self.page_size})...")
             payload_sppp = {
                 "pageNumber": page_index,
                 "pageSize": self.page_size
             }
+            if search_val:
+                payload_sppp["searchKeyword"] = search_val
+
             res_sppp = self.client.post(self.sppp_api_url, json=payload_sppp, headers=headers)
             if res_sppp.status_code == 200:
                 data_sppp = res_sppp.json()
