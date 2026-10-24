@@ -78,6 +78,9 @@ def run_scraper_instance(scraper_obj, portal_name: str, pages_arg: str, db: Data
             total_found += len(tenders)
             logging.info(f"[{portal_name}] Page {page}: Parsed {len(tenders)} tenders.")
 
+
+
+
             for tender in tenders:
                 # Apply 2-month (or custom months) date cutoff filter
                 if cutoff_date:
