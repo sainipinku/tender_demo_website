@@ -76,31 +76,72 @@ class DatabaseHandler:
         if res:
             return res['id']
         
+        # Verify state_id exists in states before passing to prevent FK violation
+        valid_state_id = None
+        if state_id:
+            try:
+                cursor.execute("SELECT id FROM states WHERE id = %s", (state_id,))
+                if cursor.fetchone():
+                    valid_state_id = state_id
+            except Exception:
+                valid_state_id = None
+
         now = datetime.now()
         cursor.execute(
             "INSERT INTO authorities (portal_id, state_id, name, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)",
-            (portal_id, state_id, name, now, now)
+            (portal_id, valid_state_id, name, now, now)
         )
         return cursor.lastrowid
 
-    def get_state_id_by_code(self, cursor, code: str) -> int:
-        cursor.execute("SELECT id FROM states WHERE code = %s", (code,))
+    def get_state_id_by_code(self, cursor, code: str = "RJ"):
+        code_clean = (code or "RJ").upper().strip()
+        cursor.execute("SELECT id FROM states WHERE code = %s", (code_clean,))
         res = cursor.fetchone()
         if res:
             return res['id']
-        # Default to Delhi (DL) or 1
+        
+        # Check any state in table
         cursor.execute("SELECT id FROM states LIMIT 1")
         res = cursor.fetchone()
-        return res['id'] if res else 1
+        if res:
+            return res['id']
+        
+        # If states table is empty, auto-create default state so FK constraints succeed
+        try:
+            now = datetime.now()
+            cursor.execute(
+                "INSERT INTO states (name, code, latitude, longitude, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                ("Rajasthan", "RJ", 27.0238, 74.2179, now, now)
+            )
+            return cursor.lastrowid
+        except Exception as e:
+            logging.warning(f"Could not auto-create default state: {e}")
+            return None
 
-    def get_sector_id_by_slug(self, cursor, slug: str) -> int:
-        cursor.execute("SELECT id FROM sectors WHERE slug = %s", (slug,))
+    def get_sector_id_by_slug(self, cursor, slug: str = "construction"):
+        slug_clean = (slug or "construction").strip().lower()
+        cursor.execute("SELECT id FROM sectors WHERE slug = %s", (slug_clean,))
         res = cursor.fetchone()
         if res:
             return res['id']
-        cursor.execute("SELECT id FROM sectors LIMIT 1")
-        res = cursor.fetchone()
-        return res['id'] if res else 1
+
+        # Auto-create the sector so it always exists and foreign keys never fail
+        name = slug_clean.replace("-", " ").replace("_", " ").title()
+        now = datetime.now()
+        try:
+            cursor.execute(
+                "INSERT INTO sectors (name, slug, description, created_at, updated_at) VALUES (%s, %s, %s, %s, %s)",
+                (name, slug_clean, f"{name} Tenders & Procurement", now, now)
+            )
+            return cursor.lastrowid
+        except Exception as e:
+            logging.warning(f"Could not auto-create sector '{slug_clean}': {e}")
+            try:
+                cursor.execute("SELECT id FROM sectors LIMIT 1")
+                fallback = cursor.fetchone()
+                return fallback['id'] if fallback else None
+            except Exception:
+                return None
 
     def upsert_scraped_tender(self, tender_data) -> bool:
         """
@@ -130,6 +171,19 @@ class DatabaseHandler:
                 state_id = self.get_state_id_by_code(cursor, tender_data.state_code or "RJ")
                 authority_id = self.get_or_create_authority(cursor, portal_id, tender_data.authority_name or "Government Department", state_id)
                 sector_id = self.get_sector_id_by_slug(cursor, tender_data.sector_slug or "construction")
+
+                # Validate foreign keys exist in parent tables before insert to prevent 1452 IntegrityError
+                valid_state_id = None
+                if state_id:
+                    cursor.execute("SELECT id FROM states WHERE id = %s", (state_id,))
+                    if cursor.fetchone():
+                        valid_state_id = state_id
+
+                valid_sector_id = None
+                if sector_id:
+                    cursor.execute("SELECT id FROM sectors WHERE id = %s", (sector_id,))
+                    if cursor.fetchone():
+                        valid_sector_id = sector_id
 
                 # Check existing hash
                 cursor.execute(
@@ -167,7 +221,7 @@ class DatabaseHandler:
                 """
 
                 cursor.execute(sql, (
-                    portal_id, authority_id, state_id, sector_id, tender_data.tender_ref, tender_data.title,
+                    portal_id, authority_id, valid_state_id, valid_sector_id, tender_data.tender_ref, tender_data.title,
                     tender_data.description, tender_data.location, tender_data.tender_value, tender_data.emd_amount,
                     tender_data.document_fee, tender_data.status, tender_data.published_at, tender_data.submission_start_at,
                     tender_data.closes_at, tender_data.opening_at, tender_data.raw_hash, tender_data.official_url,

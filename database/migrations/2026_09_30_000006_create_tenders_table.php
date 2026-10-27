@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -46,8 +47,9 @@ return new class extends Migration
             $table->unique(['portal_id', 'tender_ref'], 'tenders_portal_ref_unique');
             $table->index(['status', 'closes_at'], 'tenders_status_closes_index');
             $table->index(['state_id', 'sector_id'], 'tenders_state_sector_index');
-            $table->index('tender_value', 'tenders_value_index');
-            $table->fullText(['title', 'description'], 'tenders_title_desc_fulltext');
+            if (DB::getDriverName() !== 'sqlite') {
+                $table->fullText(['title', 'description'], 'tenders_title_desc_fulltext');
+            }
         });
     }
 
