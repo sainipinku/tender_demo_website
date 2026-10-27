@@ -41,17 +41,23 @@ class RunScraper extends Command
             $dbConfig = config('database.connections.mysql', []);
         }
 
-        $env = array_merge($_SERVER, $_ENV, [
+        $extraEnv = [
             'PYTHONPATH' => $baseDir,
-            'DB_HOST' => (string) ($dbConfig['host'] ?? '127.0.0.1'),
-            'DB_PORT' => (string) ($dbConfig['port'] ?? 3306),
-            'DB_DATABASE' => (string) ($dbConfig['database'] ?? 'tender_db'),
-            'DB_NAME' => (string) ($dbConfig['database'] ?? 'tender_db'),
-            'DB_USERNAME' => (string) ($dbConfig['username'] ?? 'root'),
-            'DB_USER' => (string) ($dbConfig['username'] ?? 'root'),
-            'DB_PASSWORD' => (string) ($dbConfig['password'] ?? ''),
-            'DB_SOCKET' => (string) ($dbConfig['unix_socket'] ?? ''),
-        ]);
+            'DB_HOST' => (string) ($dbConfig['host'] ?? env('DB_HOST', '127.0.0.1')),
+            'DB_PORT' => (string) ($dbConfig['port'] ?? env('DB_PORT', 3306)),
+            'DB_DATABASE' => (string) ($dbConfig['database'] ?? env('DB_DATABASE', 'tender_db')),
+            'DB_NAME' => (string) ($dbConfig['database'] ?? env('DB_DATABASE', 'tender_db')),
+            'DB_USERNAME' => (string) ($dbConfig['username'] ?? env('DB_USERNAME', 'root')),
+            'DB_USER' => (string) ($dbConfig['username'] ?? env('DB_USERNAME', 'root')),
+            'DB_SOCKET' => (string) ($dbConfig['unix_socket'] ?? env('DB_SOCKET', '')),
+        ];
+
+        $pw = $dbConfig['password'] ?? env('DB_PASSWORD');
+        if ($pw !== null && $pw !== '') {
+            $extraEnv['DB_PASSWORD'] = (string) $pw;
+        }
+
+        $env = array_merge($_SERVER, $_ENV, $extraEnv);
 
         $process = new Process($cmd, $baseDir, $env);
         $process->setTimeout(86400); // 24 hours process timeout for full portal auto-pagination

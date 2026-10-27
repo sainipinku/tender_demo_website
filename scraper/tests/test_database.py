@@ -137,6 +137,13 @@ class TestDatabaseHandler(unittest.TestCase):
             call_kwargs = mock_connect.call_args[1]
             self.assertEqual(call_kwargs.get("unix_socket"), "/var/run/mysqld/mysqld.sock")
 
+    def test_database_handler_strips_quotes_from_password(self):
+        with patch.dict("os.environ", {
+            "DB_PASSWORD": '"Tend!Demo_2026#Secure9x"'
+        }, clear=False):
+            with patch("scraper.db.database.TenderVectorDB"):
+                handler = DatabaseHandler()
+                self.assertEqual(handler.password, "Tend!Demo_2026#Secure9x")
 
 if __name__ == "__main__":
     unittest.main()

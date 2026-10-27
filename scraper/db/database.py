@@ -12,7 +12,7 @@ project_root = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
 
 root_env = os.path.join(project_root, ".env")
 if os.path.exists(root_env):
-    load_dotenv(root_env)
+    load_dotenv(root_env, override=True)
 
 scraper_env = os.path.join(project_root, "scraper", ".env")
 if os.path.exists(scraper_env):
@@ -26,7 +26,12 @@ class DatabaseHandler:
         self.port = int(os.getenv("DB_PORT", 3306))
         self.db_name = os.getenv("DB_DATABASE") or os.getenv("DB_NAME", "tender_db")
         self.user = os.getenv("DB_USERNAME") or os.getenv("DB_USER", "root")
-        self.password = os.getenv("DB_PASSWORD", "")
+
+        raw_pw = os.getenv("DB_PASSWORD", "")
+        if raw_pw and ((raw_pw.startswith('"') and raw_pw.endswith('"')) or (raw_pw.startswith("'") and raw_pw.endswith("'"))):
+            raw_pw = raw_pw[1:-1]
+        self.password = raw_pw
+
         self.unix_socket = os.getenv("DB_SOCKET") or os.getenv("MYSQL_UNIX_PORT", "")
         self.vector_db = TenderVectorDB()
 
