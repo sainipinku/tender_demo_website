@@ -35,7 +35,25 @@ class RunScraper extends Command
             $cmd[] = '--city-only';
         }
 
-        $process = new Process($cmd, $baseDir, ['PYTHONPATH' => $baseDir]);
+        $connectionName = config('database.default', 'mysql');
+        $dbConfig = config("database.connections.{$connectionName}", []);
+        if ($connectionName !== 'mysql' && empty($dbConfig['host'])) {
+            $dbConfig = config('database.connections.mysql', []);
+        }
+
+        $env = array_merge($_SERVER, $_ENV, [
+            'PYTHONPATH' => $baseDir,
+            'DB_HOST' => (string) ($dbConfig['host'] ?? '127.0.0.1'),
+            'DB_PORT' => (string) ($dbConfig['port'] ?? 3306),
+            'DB_DATABASE' => (string) ($dbConfig['database'] ?? 'tender_db'),
+            'DB_NAME' => (string) ($dbConfig['database'] ?? 'tender_db'),
+            'DB_USERNAME' => (string) ($dbConfig['username'] ?? 'root'),
+            'DB_USER' => (string) ($dbConfig['username'] ?? 'root'),
+            'DB_PASSWORD' => (string) ($dbConfig['password'] ?? ''),
+            'DB_SOCKET' => (string) ($dbConfig['unix_socket'] ?? ''),
+        ]);
+
+        $process = new Process($cmd, $baseDir, $env);
         $process->setTimeout(86400); // 24 hours process timeout for full portal auto-pagination
 
         $process->run(function ($type, $buffer) {

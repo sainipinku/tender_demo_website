@@ -109,7 +109,36 @@ class TestDatabaseHandler(unittest.TestCase):
                             self.assertEqual(params[2], 2)    # valid_state_id (verified in DB)
                             self.assertIsNone(params[3])       # valid_sector_id is None (safe from FK 1452 violation)
 
+    def test_database_handler_reads_laravel_env_vars(self):
+        with patch.dict("os.environ", {
+            "DB_DATABASE": "laravel_tender_prod",
+            "DB_USERNAME": "tender_admin",
+            "DB_PASSWORD": "super_secret_pw",
+            "DB_SOCKET": "/var/run/mysqld/mysqld.sock"
+        }, clear=False):
+            with patch("scraper.db.database.TenderVectorDB"):
+                handler = DatabaseHandler()
+                self.assertEqual(handler.db_name, "laravel_tender_prod")
+                self.assertEqual(handler.user, "tender_admin")
+                self.assertEqual(handler.password, "super_secret_pw")
+                self.assertEqual(handler.unix_socket, "/var/run/mysqld/mysqld.sock")
+
+    @patch("os.path.exists", return_value=True)
+    @patch("pymysql.connect")
+    def test_get_connection_prefers_unix_socket_when_available(self, mock_connect, mock_exists):
+        with patch("scraper.db.database.TenderVectorDB"):
+            handler = DatabaseHandler()
+            handler.unix_socket = "/var/run/mysqld/mysqld.sock"
+            handler.host = "127.0.0.1"
+            handler.get_connection()
+
+            # Must have attempted connection with unix_socket
+            mock_connect.assert_called_once()
+            call_kwargs = mock_connect.call_args[1]
+            self.assertEqual(call_kwargs.get("unix_socket"), "/var/run/mysqld/mysqld.sock")
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

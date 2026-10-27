@@ -6,27 +6,59 @@ from datetime import datetime
 from dotenv import load_dotenv
 from scraper.db.vector_db import TenderVectorDB
 
-load_dotenv()
+# Resolve project root and load Laravel .env first, then scraper/.env if present
+current_file_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
+
+root_env = os.path.join(project_root, ".env")
+if os.path.exists(root_env):
+    load_dotenv(root_env)
+
+scraper_env = os.path.join(project_root, "scraper", ".env")
+if os.path.exists(scraper_env):
+    load_dotenv(scraper_env, override=True)
+else:
+    load_dotenv()
 
 class DatabaseHandler:
     def __init__(self):
         self.host = os.getenv("DB_HOST", "127.0.0.1")
         self.port = int(os.getenv("DB_PORT", 3306))
-        self.db_name = os.getenv("DB_NAME", "tender_db")
-        self.user = os.getenv("DB_USER", "root")
+        self.db_name = os.getenv("DB_DATABASE") or os.getenv("DB_NAME", "tender_db")
+        self.user = os.getenv("DB_USERNAME") or os.getenv("DB_USER", "root")
         self.password = os.getenv("DB_PASSWORD", "")
+        self.unix_socket = os.getenv("DB_SOCKET") or os.getenv("MYSQL_UNIX_PORT", "")
         self.vector_db = TenderVectorDB()
 
     def get_connection(self):
+        connect_kwargs = {
+            "user": self.user,
+            "password": self.password,
+            "database": self.db_name,
+            "charset": 'utf8mb4',
+            "cursorclass": pymysql.cursors.DictCursor,
+            "autocommit": True
+        }
+
+        # Check for socket on Unix systems (common on Ubuntu/Debian where root uses auth_socket)
+        socket_candidates = [
+            self.unix_socket,
+            "/var/run/mysqld/mysqld.sock",
+            "/var/lib/mysql/mysql.sock",
+            "/tmp/mysql.sock",
+        ]
+        available_socket = next((s for s in socket_candidates if s and os.path.exists(s)), None)
+
+        if available_socket and (self.host in ["localhost", "127.0.0.1", ""] or bool(self.unix_socket)):
+            try:
+                return pymysql.connect(unix_socket=available_socket, **connect_kwargs)
+            except Exception as socket_err:
+                logging.debug(f"Socket connection fallback to TCP: {socket_err}")
+
         return pymysql.connect(
             host=self.host,
             port=self.port,
-            user=self.user,
-            password=self.password,
-            database=self.db_name,
-            charset='utf8mb4',
-            cursorclass=pymysql.cursors.DictCursor,
-            autocommit=True
+            **connect_kwargs
         )
 
     def start_scrape_run(self, portal_name: str) -> int:
