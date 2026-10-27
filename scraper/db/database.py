@@ -6,7 +6,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from scraper.db.vector_db import TenderVectorDB
 
-# Resolve project root and load Laravel .env first, then scraper/.env if present
+# Resolve project root and load Laravel's main .env as the primary source of truth
 current_file_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_file_dir, "..", ".."))
 
@@ -16,9 +16,7 @@ if os.path.exists(root_env):
 
 scraper_env = os.path.join(project_root, "scraper", ".env")
 if os.path.exists(scraper_env):
-    load_dotenv(scraper_env, override=True)
-else:
-    load_dotenv()
+    load_dotenv(scraper_env, override=False)
 
 class DatabaseHandler:
     def __init__(self):
@@ -28,6 +26,18 @@ class DatabaseHandler:
         self.user = os.getenv("DB_USERNAME") or os.getenv("DB_USER", "root")
 
         raw_pw = os.getenv("DB_PASSWORD", "")
+        # If DB_PASSWORD is empty in environment, directly inspect root .env
+        if not raw_pw and os.path.exists(root_env):
+            try:
+                with open(root_env, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("DB_PASSWORD="):
+                            raw_pw = line.split("=", 1)[1].strip()
+                            break
+            except Exception:
+                pass
+
         if raw_pw and ((raw_pw.startswith('"') and raw_pw.endswith('"')) or (raw_pw.startswith("'") and raw_pw.endswith("'"))):
             raw_pw = raw_pw[1:-1]
         self.password = raw_pw
